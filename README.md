@@ -25,6 +25,7 @@ Sending screenshots of designs directly to coding LLMs (like Cursor, Copilot, or
 - **Database:** SQLite (modernc.org/sqlite) + SQLC + Goose (for caching API responses and storing local config/keys).
 - **Frontend:** HTML/JS with Go templates embedded directly into the binary.
 
-## Next Steps
-- Update `sqlc.yaml` and migrations to handle caching and config rather than notes.
-- Replace notes handlers with the new UI Prompt Generator interface.
+## Current Status
+- Database schema and migrations updated for `config`, `history`, and `cache`.
+- Basic UI shell created.
+- Boilerplate completely cleaned up.
