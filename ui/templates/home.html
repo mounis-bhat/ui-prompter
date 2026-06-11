@@ -69,7 +69,10 @@
             <h2>Configuration</h2>
             <form action="/api/config" method="POST">
                 <label>Target Project Directory
-                    <input type="text" name="target_dir" value="{{ .TargetDir }}" placeholder="/Users/dev/my-project">
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="targetDirInput" name="target_dir" value="{{ .TargetDir }}" placeholder="/Users/dev/my-project" style="flex: 1;">
+                        <button type="button" onclick="pickDirectory(event)" style="padding: 0.75rem 1rem; flex-shrink: 0; width: auto;">Browse</button>
+                    </div>
                 </label>
                 <label>Figma API Key (PAT)
                     <input type="password" name="figma_key" value="{{ .FigmaKey }}" placeholder="figd_...">
@@ -98,7 +101,23 @@
         <div class="result-container">
             <div class="result-header">
                 <h2>Generated Blueprint</h2>
-                <div class="actions">
+                <div class="actions" style="align-items: center; flex-wrap: wrap;">
+                    {{ if .ImageHash }}
+                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="attachImage" value="1"> Attach original image
+                    </label>
+                    <input type="hidden" id="imageHash" value="{{ .ImageHash }}">
+                    <input type="hidden" id="imageExt" value="{{ .ImageExt }}">
+                    {{ end }}
+                    {{ if .FigmaAssets }}
+                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="downloadAssets" value="1" checked> Download Assets & Design
+                    </label>
+                    <input type="hidden" id="figmaAssets" value="{{ .FigmaAssets }}">
+                    {{ end }}
+                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
+                        <input type="checkbox" id="nukeDir" value="1"> Nuke after implementation
+                    </label>
                     <button type="button" id="copyBtn" onclick="copyToClipboard()">Copy to Clipboard</button>
                     <button type="button" id="saveBtn" onclick="saveIntent()">Save to .ai-intent.md</button>
                 </div>

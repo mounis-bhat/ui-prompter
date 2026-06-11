@@ -4,12 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/sqweek/dialog"
 
 	"ui-prompter/internal/context"
 	"ui-prompter/internal/db"
@@ -37,6 +40,7 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/image", a.imageHandler)
 	mux.HandleFunc("POST /api/config", a.saveConfigHandler)
 	mux.HandleFunc("POST /api/save", a.saveIntentHandler)
+	mux.HandleFunc("GET /api/pick-dir", a.pickDirHandler)
 
 	// Serve static files
 	mux.Handle("GET /static/", http.FileServer(http.FS(ui.Files)))
@@ -55,6 +59,9 @@ type HomeData struct {
 	Result           string
 	Error            string
 	ActiveTab        string
+	ImageHash        string
+	ImageExt         string
+	FigmaAssets      string
 }
 
 func (a *App) getHomeData(r *http.Request) HomeData {
@@ -203,6 +210,55 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 		Prompt:     finalPrompt,
 	})
 
+	// Extract Assets
+	assets := figma.ExtractAssets(node)
+	var svgIDs []string
+	var pngIDs []string
+	for _, ast := range assets {
+		if ast.Format == "svg" {
+			svgIDs = append(svgIDs, ast.ID)
+		} else {
+			pngIDs = append(pngIDs, ast.ID)
+		}
+	}
+
+	pngIDs = append(pngIDs, nodeID)
+
+	svgURLs, _ := client.GetImages(fileKey, svgIDs, "svg")
+	pngURLs, _ := client.GetImages(fileKey, pngIDs, "png")
+
+	type DownloadableAsset struct {
+		Name string `json:"name"`
+		URL  string `json:"url"`
+	}
+	var downloadAssets []DownloadableAsset
+	for _, ast := range assets {
+		var u string
+		if ast.Format == "svg" {
+			u = svgURLs[ast.ID]
+		} else {
+			u = pngURLs[ast.ID]
+		}
+		if u != "" {
+			downloadAssets = append(downloadAssets, DownloadableAsset{
+				Name: ast.Name + "." + ast.Format,
+				URL:  u,
+			})
+		}
+	}
+
+	if designURL, ok := pngURLs[nodeID]; ok && designURL != "" {
+		downloadAssets = append(downloadAssets, DownloadableAsset{
+			Name: "design.png",
+			URL:  designURL,
+		})
+	}
+
+	if len(downloadAssets) > 0 {
+		b, _ := json.Marshal(downloadAssets)
+		data.FigmaAssets = string(b)
+	}
+
 	data.Result = finalPrompt
 	a.homeTmpl.Execute(w, data)
 }
@@ -240,6 +296,17 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 
 	hashBytes := sha256.Sum256(imgBytes)
 	hashStr := hex.EncodeToString(hashBytes[:])
+
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		if mimeType == "image/jpeg" {
+			ext = ".jpg"
+		} else {
+			ext = ".png"
+		}
+	}
+	tempImgPath := filepath.Join(os.TempDir(), "ui-prompter-"+hashStr+ext)
+	_ = os.WriteFile(tempImgPath, imgBytes, 0644)
 
 	ctx := r.Context()
 	if cachedResp, err := a.db.Queries.GetCache(ctx, hashStr); err == nil && cachedResp != "" {
@@ -303,6 +370,8 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	data.Result = respText
+	data.ImageHash = hashStr
+	data.ImageExt = ext
 	a.homeTmpl.Execute(w, data)
 }
 
@@ -355,6 +424,60 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.FormValue("attach_image") == "true" {
+		hash := r.FormValue("image_hash")
+		ext := r.FormValue("image_ext")
+		if hash != "" {
+			tempImgPath := filepath.Join(os.TempDir(), "ui-prompter-"+hash+ext)
+			imgData, err := os.ReadFile(tempImgPath)
+			if err == nil {
+				_ = os.WriteFile(filepath.Join(targetDir, "original_image"+ext), imgData, 0644)
+			}
+		}
+	}
+
+	figmaAssetsStr := r.FormValue("figma_assets")
+	if figmaAssetsStr != "" {
+		var assets []struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		}
+		if err := json.Unmarshal([]byte(figmaAssetsStr), &assets); err == nil {
+			assetsDir := filepath.Join(targetDir, "assets")
+			os.MkdirAll(assetsDir, 0755)
+
+			for _, a := range assets {
+				resp, err := http.Get(a.URL)
+				if err == nil {
+					outPath := filepath.Join(assetsDir, a.Name)
+					if a.Name == "design.png" {
+						outPath = filepath.Join(targetDir, a.Name)
+					}
+					outFile, err := os.Create(outPath)
+					if err == nil {
+						io.Copy(outFile, resp.Body)
+						outFile.Close()
+					}
+					resp.Body.Close()
+				}
+			}
+		}
+	}
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Saved successfully"))
+}
+
+func (a *App) pickDirHandler(w http.ResponseWriter, r *http.Request) {
+	dir, err := dialog.Directory().Title("Select Target Project Directory").Browse()
+	if err != nil {
+		if err.Error() == "Cancelled" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "Failed to pick directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(dir))
 }

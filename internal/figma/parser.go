@@ -137,3 +137,48 @@ func ParseNodeToMarkdown(node *Node, depth int) string {
 
 	return fmt.Sprintf("%s %s %s%s\n%s", indent, prefix, name, classes, childMd)
 }
+
+func ExtractAssets(node *Node) []AssetInfo {
+	var assets []AssetInfo
+
+	isAsset := false
+	format := "png"
+
+	if len(node.ExportSettings) > 0 {
+		isAsset = true
+		format = strings.ToLower(node.ExportSettings[0].Format)
+	} else if node.Type == "VECTOR" || node.Type == "BOOLEAN_OPERATION" || node.Type == "STAR" || node.Type == "ELLIPSE" || node.Type == "LINE" {
+		isAsset = true
+		format = "svg"
+	} else {
+		for _, fill := range node.Fills {
+			if fill.Type == "IMAGE" {
+				isAsset = true
+				format = "png"
+				break
+			}
+		}
+	}
+
+	if isAsset {
+		name := node.Name
+		if name == "" {
+			name = node.ID
+		}
+		name = strings.ReplaceAll(name, " ", "_")
+		name = strings.ReplaceAll(name, "/", "_")
+		name = strings.ToLower(name)
+
+		assets = append(assets, AssetInfo{
+			ID:     node.ID,
+			Name:   name,
+			Format: format,
+		})
+	} else {
+		for _, child := range node.Children {
+			assets = append(assets, ExtractAssets(&child)...)
+		}
+	}
+
+	return assets
+}

@@ -5,6 +5,10 @@ type FileNodesResponse struct {
 	Nodes map[string]NodeContent `json:"nodes"`
 }
 
+type ImagesResponse struct {
+	Images map[string]string `json:"images"`
+}
+
 type NodeContent struct {
 	Document Node `json:"document"`
 }
@@ -26,9 +30,21 @@ type Node struct {
 	LayoutGrow       float64      `json:"layoutGrow,omitempty"`
 	LayoutAlign      string       `json:"layoutAlign,omitempty"`
 	Fills            []Paint      `json:"fills,omitempty"`
-	Strokes          []Paint      `json:"strokes,omitempty"`
-	CornerRadius     float64      `json:"cornerRadius,omitempty"`
-	BoundingBox      *BoundingBox `json:"absoluteBoundingBox,omitempty"`
+	Strokes          []Paint          `json:"strokes,omitempty"`
+	CornerRadius     float64          `json:"cornerRadius,omitempty"`
+	BoundingBox      *BoundingBox     `json:"absoluteBoundingBox,omitempty"`
+	ExportSettings   []ExportSetting  `json:"exportSettings,omitempty"`
+}
+
+type ExportSetting struct {
+	Format string `json:"format"`
+}
+
+type AssetInfo struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Format string `json:"format"`
+	URL    string `json:"url"`
 }
 
 type BoundingBox struct {

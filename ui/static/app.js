@@ -34,8 +34,37 @@ async function saveIntent() {
     if (!pre) return;
     const btn = document.getElementById('saveBtn');
     
+    let content = pre.innerText;
+    
+    const attachImage = document.getElementById('attachImage');
+    const nukeDir = document.getElementById('nukeDir');
+    const imageHash = document.getElementById('imageHash');
+    const imageExt = document.getElementById('imageExt');
+    
+    if (attachImage && attachImage.checked) {
+        content += "\n\nI have attached the original image for more context.";
+    }
+    
+    if (nukeDir && nukeDir.checked) {
+        content += "\n\nNuke after implementation: true";
+    }
+
     const formData = new URLSearchParams();
-    formData.append('content', pre.innerText);
+    formData.append('content', content);
+    
+    if (attachImage && attachImage.checked && imageHash) {
+        formData.append('attach_image', 'true');
+        formData.append('image_hash', imageHash.value);
+        formData.append('image_ext', imageExt.value);
+    }
+
+    const downloadAssets = document.getElementById('downloadAssets');
+    const figmaAssets = document.getElementById('figmaAssets');
+    
+    if (downloadAssets && downloadAssets.checked && figmaAssets) {
+        formData.append('figma_assets', figmaAssets.value);
+        content += "\n\nNote: The extracted assets and design.png are available in the local `assets/` directory. Please move these to the appropriate project directory and use them in the code.";
+    }
 
     try {
         const orig = btn.innerText;
@@ -75,3 +104,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+async function pickDirectory(event) {
+    try {
+        const btn = event.currentTarget;
+        const orig = btn.innerText;
+        btn.innerText = 'Opening...';
+        btn.disabled = true;
+
+        const res = await fetch('/api/pick-dir');
+        
+        btn.innerText = orig;
+        btn.disabled = false;
+
+        if (res.ok) {
+            const dir = await res.text();
+            if (dir) {
+                document.getElementById('targetDirInput').value = dir;
+            }
+        } else {
+            console.error('Failed to pick directory');
+        }
+    } catch (err) {
+        console.error('Error picking directory', err);
+        const btn = event?.currentTarget;
+        if (btn) {
+            btn.innerText = 'Browse';
+            btn.disabled = false;
+        }
+    }
+}

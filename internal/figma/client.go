@@ -87,3 +87,35 @@ func (c *Client) GetNode(fileKey, nodeID string) (*Node, error) {
 
 	return &nodeContent.Document, nil
 }
+
+func (c *Client) GetImages(fileKey string, nodeIDs []string, format string) (map[string]string, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	ids := strings.Join(nodeIDs, ",")
+	apiURL := fmt.Sprintf("https://api.figma.com/v1/images/%s?ids=%s&format=%s", fileKey, url.QueryEscape(ids), format)
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("X-Figma-Token", c.APIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("figma images API error: status %d", resp.StatusCode)
+	}
+
+	var result ImagesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Images, nil
+}
