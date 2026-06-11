@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type Client struct {
@@ -92,30 +93,61 @@ func (c *Client) GetImages(fileKey string, nodeIDs []string, format string) (map
 	if len(nodeIDs) == 0 {
 		return nil, nil
 	}
-	ids := strings.Join(nodeIDs, ",")
-	apiURL := fmt.Sprintf("https://api.figma.com/v1/images/%s?ids=%s&format=%s", fileKey, url.QueryEscape(ids), format)
 
-	req, err := http.NewRequest("GET", apiURL, nil)
-	if err != nil {
-		return nil, err
+	resultMap := make(map[string]string)
+	chunkSize := 40 // Figma URL limits and complexity limit
+
+	for i := 0; i < len(nodeIDs); i += chunkSize {
+		end := i + chunkSize
+		if end > len(nodeIDs) {
+			end = len(nodeIDs)
+		}
+
+		chunk := nodeIDs[i:end]
+		ids := strings.Join(chunk, ",")
+		apiURL := fmt.Sprintf("https://api.figma.com/v1/images/%s?ids=%s&format=%s", fileKey, url.QueryEscape(ids), format)
+
+		req, err := http.NewRequest("GET", apiURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Figma-Token", c.APIKey)
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			resp.Body.Close()
+			time.Sleep(5 * time.Second) // backoff
+			resp, err = http.DefaultClient.Do(req)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return nil, fmt.Errorf("figma images API error: status %d", resp.StatusCode)
+		}
+
+		var result ImagesResponse
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			resp.Body.Close()
+			return nil, err
+		}
+		resp.Body.Close()
+
+		for k, v := range result.Images {
+			resultMap[k] = v
+		}
+
+		if end < len(nodeIDs) {
+			time.Sleep(1 * time.Second) // throttle
+		}
 	}
 
-	req.Header.Set("X-Figma-Token", c.APIKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("figma images API error: status %d", resp.StatusCode)
-	}
-
-	var result ImagesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
-	}
-
-	return result.Images, nil
+	return resultMap, nil
 }

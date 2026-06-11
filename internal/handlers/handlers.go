@@ -58,7 +58,6 @@ type HomeData struct {
 	SuccessMessage   string
 	Result           string
 	Error            string
-	ActiveTab        string
 	ImageHash        string
 	ImageExt         string
 	FigmaAssets      string
@@ -99,7 +98,6 @@ func (a *App) getHomeData(r *http.Request) HomeData {
 		ModelDisplayName: modelDisplay,
 		TargetDir:        getConfig("target_dir"),
 		VisionReady:      visionReady,
-		ActiveTab:        "figma", // default
 	}
 	return data
 }
@@ -109,7 +107,6 @@ func (a *App) homeHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.URL.Query().Get("success") == "1" {
 		data.SuccessMessage = "Settings saved successfully!"
-		data.ActiveTab = "settings"
 	}
 
 	if err := a.homeTmpl.Execute(w, data); err != nil {
@@ -119,10 +116,14 @@ func (a *App) homeHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	data := a.getHomeData(r)
-	data.ActiveTab = "figma"
 
 	if err := r.ParseForm(); err != nil {
 		data.Error = "Unable to parse form"
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -130,6 +131,11 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	figmaURL := r.FormValue("figma_url")
 	if figmaURL == "" {
 		data.Error = "Figma URL is required"
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -138,6 +144,11 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	figmaKey := data.FigmaKey
 	if figmaKey == "" {
 		data.Error = "Figma API Key (PAT) is missing. Please configure it in Settings."
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -145,6 +156,11 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	fileKey, nodeID, err := figma.ExtractFileKeyAndNodeID(figmaURL)
 	if err != nil {
 		data.Error = err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -154,6 +170,14 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 
 	if cachedResp, err := a.db.Queries.GetCache(ctx, hashStr); err == nil && cachedResp != "" {
 		data.Result = cachedResp
+		if cachedAssets, err := a.db.Queries.GetCache(ctx, hashStr+"_assets"); err == nil && cachedAssets != "" {
+			data.FigmaAssets = cachedAssets
+		}
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -162,55 +186,16 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	node, err := client.GetNode(fileKey, nodeID)
 	if err != nil {
 		data.Error = err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
 
-	markdown := figma.ParseNodeToMarkdown(node, 0)
-
-	defaultModel := a.getHomeData(r).DefaultModel
-	apiKey := ""
-	switch defaultModel {
-	case "openai":
-		apiKey = a.getHomeData(r).OpenAIKey
-	case "anthropic":
-		apiKey = a.getHomeData(r).AnthropicKey
-	case "gemini":
-		apiKey = a.getHomeData(r).GeminiKey
-	}
-
-	if apiKey == "" {
-		data.Error = fmt.Sprintf("API Key for %s is missing. Please configure it in Settings to polish the Figma output.", defaultModel)
-		a.homeTmpl.Execute(w, data)
-		return
-	}
-
-	provider, err := vision.NewProvider(defaultModel, apiKey)
-	if err != nil {
-		data.Error = "Error initializing LLM provider: " + err.Error()
-		a.homeTmpl.Execute(w, data)
-		return
-	}
-
-	finalPrompt, err := provider.GenerateText(ctx, figma.SystemPrompt, markdown)
-	if err != nil {
-		data.Error = "Error generating prompt via LLM: " + err.Error()
-		a.homeTmpl.Execute(w, data)
-		return
-	}
-
-	_ = a.db.Queries.SetCache(ctx, queries.SetCacheParams{
-		Hash:     hashStr,
-		Response: finalPrompt,
-	})
-
-	_, _ = a.db.Queries.AddHistory(ctx, queries.AddHistoryParams{
-		SourceType: "figma",
-		SourceUri:  figmaURL,
-		Prompt:     finalPrompt,
-	})
-
-	// Extract Assets
+	// Extract Assets regardless of cache
 	assets := figma.ExtractAssets(node)
 	var svgIDs []string
 	var pngIDs []string
@@ -259,17 +244,92 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 		data.FigmaAssets = string(b)
 	}
 
+	markdown := figma.ParseNodeToMarkdown(node, 0)
+
+	defaultModel := a.getHomeData(r).DefaultModel
+	apiKey := ""
+	switch defaultModel {
+	case "openai":
+		apiKey = a.getHomeData(r).OpenAIKey
+	case "anthropic":
+		apiKey = a.getHomeData(r).AnthropicKey
+	case "gemini":
+		apiKey = a.getHomeData(r).GeminiKey
+	}
+
+	if apiKey == "" {
+		data.Error = fmt.Sprintf("API Key for %s is missing. Please configure it in Settings to polish the Figma output.", defaultModel)
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
+		a.homeTmpl.Execute(w, data)
+		return
+	}
+
+	provider, err := vision.NewProvider(defaultModel, apiKey)
+	if err != nil {
+		data.Error = "Error initializing LLM provider: " + err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
+		a.homeTmpl.Execute(w, data)
+		return
+	}
+
+	finalPrompt, err := provider.GenerateText(ctx, figma.SystemPrompt, markdown)
+	if err != nil {
+		data.Error = "Error generating prompt via LLM: " + err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
+		a.homeTmpl.Execute(w, data)
+		return
+	}
+
+	_ = a.db.Queries.SetCache(ctx, queries.SetCacheParams{
+		Hash:     hashStr,
+		Response: finalPrompt,
+	})
+
+	if data.FigmaAssets != "" {
+		_ = a.db.Queries.SetCache(ctx, queries.SetCacheParams{
+			Hash:     hashStr + "_assets",
+			Response: data.FigmaAssets,
+		})
+	}
+
+	_, _ = a.db.Queries.AddHistory(ctx, queries.AddHistoryParams{
+		SourceType: "figma",
+		SourceUri:  figmaURL,
+		Prompt:     finalPrompt,
+	})
+
 	data.Result = finalPrompt
+	if r.Header.Get("Accept") == "application/json" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(data)
+		return
+	}
 	a.homeTmpl.Execute(w, data)
 }
 
 func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	data := a.getHomeData(r)
-	data.ActiveTab = "image"
 
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		data.Error = "Unable to parse form"
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -277,6 +337,11 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	file, header, err := r.FormFile("image")
 	if err != nil {
 		data.Error = "Unable to read image"
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -285,6 +350,11 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	imgBytes, err := io.ReadAll(file)
 	if err != nil {
 		data.Error = "Unable to read image bytes"
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -311,6 +381,13 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if cachedResp, err := a.db.Queries.GetCache(ctx, hashStr); err == nil && cachedResp != "" {
 		data.Result = cachedResp
+		data.ImageHash = hashStr
+		data.ImageExt = ext
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -332,6 +409,11 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 
 	if apiKey == "" {
 		data.Error = fmt.Sprintf("API key for %s is missing. Please configure it in Settings.", defaultModel)
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -339,6 +421,11 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	provider, err := vision.NewProvider(defaultModel, apiKey)
 	if err != nil {
 		data.Error = err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -354,6 +441,11 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	respText, err := provider.AnalyzeImage(ctx, base64Image, mimeType, contextPrompt)
 	if err != nil {
 		data.Error = err.Error()
+		if r.Header.Get("Accept") == "application/json" {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(data)
+			return
+		}
 		a.homeTmpl.Execute(w, data)
 		return
 	}
@@ -372,11 +464,20 @@ func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
 	data.Result = respText
 	data.ImageHash = hashStr
 	data.ImageExt = ext
+	if r.Header.Get("Accept") == "application/json" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(data)
+		return
+	}
 	a.homeTmpl.Execute(w, data)
 }
 
 func (a *App) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
+		if r.Header.Get("Accept") == "application/json" {
+			http.Error(w, `{"Error":"Failed to parse form"}`, http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
@@ -391,11 +492,29 @@ func (a *App) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
 			Value: val,
 		})
 		if err != nil {
+			if r.Header.Get("Accept") == "application/json" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"Error": "Failed to save config: " + err.Error()})
+				return
+			}
 			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 	}
 
+	if r.Header.Get("Accept") == "application/json" {
+		// Get fresh data
+		data := a.getHomeData(r)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"SuccessMessage": "Settings saved successfully!",
+			"FigmaReady": data.FigmaKey != "",
+			"VisionReady": data.VisionReady,
+			"ModelDisplayName": data.ModelDisplayName,
+		})
+		return
+	}
 	http.Redirect(w, r, "/?success=1", http.StatusSeeOther)
 }
 
@@ -418,7 +537,14 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := os.WriteFile(filepath.Join(targetDir, ".ai-intent.md"), []byte(content), 0644)
+	planDirName := r.FormValue("plan_dir")
+	if planDirName == "" {
+		planDirName = "ui-prompter-plan"
+	}
+	planDirPath := filepath.Join(targetDir, planDirName)
+	os.MkdirAll(planDirPath, 0755)
+
+	err := os.WriteFile(filepath.Join(planDirPath, "intent.md"), []byte(content), 0644)
 	if err != nil {
 		http.Error(w, "Failed to save file: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -431,7 +557,7 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 			tempImgPath := filepath.Join(os.TempDir(), "ui-prompter-"+hash+ext)
 			imgData, err := os.ReadFile(tempImgPath)
 			if err == nil {
-				_ = os.WriteFile(filepath.Join(targetDir, "original_image"+ext), imgData, 0644)
+				_ = os.WriteFile(filepath.Join(planDirPath, "original_image"+ext), imgData, 0644)
 			}
 		}
 	}
@@ -443,7 +569,7 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 			URL  string `json:"url"`
 		}
 		if err := json.Unmarshal([]byte(figmaAssetsStr), &assets); err == nil {
-			assetsDir := filepath.Join(targetDir, "assets")
+			assetsDir := filepath.Join(planDirPath, "assets")
 			os.MkdirAll(assetsDir, 0755)
 
 			for _, a := range assets {
@@ -451,7 +577,7 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 				if err == nil {
 					outPath := filepath.Join(assetsDir, a.Name)
 					if a.Name == "design.png" {
-						outPath = filepath.Join(targetDir, a.Name)
+						outPath = filepath.Join(planDirPath, a.Name)
 					}
 					outFile, err := os.Create(outPath)
 					if err == nil {

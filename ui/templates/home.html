@@ -4,127 +4,229 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UI Prompter</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script src="/static/app.js" defer></script>
+    <link rel="stylesheet" href="/static/style.css?v=3">
+    <script src="/static/app.js?v=4" defer></script>
 </head>
 <body>
-    <div class="container">
-        <h1>UI Prompter</h1>
-
-        <div class="messages">
-            {{ if .Error }}
-            <div class="error-message">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                {{ .Error }}
+    <div class="app-layout">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="brand-icon">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline></svg>
+                </div>
+                UI Prompter
             </div>
-            {{ end }}
             
-            {{ if .SuccessMessage }}
-            <div class="success-message">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                {{ .SuccessMessage }}
-            </div>
-            {{ end }}
-        </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-link" onclick="navigatePage(event, 'figma')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/><path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/><path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/><path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/><path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/></svg>
+                    Figma Engine
+                </a>
+                <a href="#" class="nav-link" onclick="navigatePage(event, 'image')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    Vision Engine
+                </a>
+                <a href="#" class="nav-link" onclick="navigatePage(event, 'settings')">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                    Settings
+                </a>
+            </nav>
 
-        <div class="status-bar">
-            <span class="status-item {{ if .FigmaKey }}status-ready{{ else }}status-missing{{ end }}">
-                Figma: {{ if .FigmaKey }}Ready{{ else }}Missing Key{{ end }}
-            </span>
-            <span class="status-item {{ if .VisionReady }}status-ready{{ else }}status-missing{{ end }}">
-                Vision ({{ .ModelDisplayName }}): {{ if .VisionReady }}Ready{{ else }}Missing Key{{ end }}
-            </span>
-        </div>
-
-        <div class="tabs">
-            <div class="tab {{ if eq .ActiveTab "figma" }}active{{ end }}" onclick="showTab(event, 'figma')">Figma Engine</div>
-            <div class="tab {{ if eq .ActiveTab "image" }}active{{ end }}" onclick="showTab(event, 'image')">Vision Engine</div>
-            <div class="tab {{ if eq .ActiveTab "settings" }}active{{ end }}" onclick="showTab(event, 'settings')">Settings</div>
-        </div>
-
-        <div id="figma" class="tab-content {{ if eq .ActiveTab "figma" }}active{{ end }}">
-            <h2>Extract Blueprint from Figma</h2>
-            <form action="/api/figma" method="POST">
-                <label>Figma URL
-                    <input type="url" name="figma_url" placeholder="https://www.figma.com/file/..." required {{ if not .FigmaKey }}disabled{{ end }}>
-                </label>
-                <button type="submit" {{ if not .FigmaKey }}disabled{{ end }}>Generate Blueprint</button>
-            </form>
-            {{ if not .FigmaKey }}<p class="warning-text">Please configure your Figma API Key in Settings.</p>{{ end }}
-        </div>
-
-        <div id="image" class="tab-content {{ if eq .ActiveTab "image" }}active{{ end }}">
-            <h2>Extract Blueprint from Image</h2>
-            <form action="/api/image" method="POST" enctype="multipart/form-data">
-                <label class="file-upload-label {{ if not .VisionReady }}disabled-label{{ end }}">
-                    <span class="file-upload-text">Choose a screenshot or drag it here</span>
-                    <input type="file" name="image" accept="image/*" class="hidden-file-input" required {{ if not .VisionReady }}disabled{{ end }}>
-                </label>
-                <button type="submit" {{ if not .VisionReady }}disabled{{ end }}>Generate Blueprint</button>
-            </form>
-            {{ if not .VisionReady }}<p class="warning-text">Please configure the API Key for {{ .ModelDisplayName }} in Settings.</p>{{ end }}
-        </div>
-
-        <div id="settings" class="tab-content {{ if eq .ActiveTab "settings" }}active{{ end }}">
-            <h2>Configuration</h2>
-            <form action="/api/config" method="POST">
-                <label>Target Project Directory
-                    <div style="display: flex; gap: 0.5rem; align-items: center;">
-                        <input type="text" id="targetDirInput" name="target_dir" value="{{ .TargetDir }}" placeholder="/Users/dev/my-project" style="flex: 1;">
-                        <button type="button" onclick="pickDirectory(event)" style="padding: 0.75rem 1rem; flex-shrink: 0; width: auto;">Browse</button>
+            <div class="sidebar-footer">
+                <div class="status-bar">
+                    <div id="status-figma" class="status-item {{ if .FigmaKey }}ready{{ end }}" title="Figma API Status">
+                        <span class="status-indicator"></span>
+                        <span class="status-text">Figma API</span>
                     </div>
-                </label>
-                <label>Figma API Key (PAT)
-                    <input type="password" name="figma_key" value="{{ .FigmaKey }}" placeholder="figd_...">
-                </label>
-                <label>OpenAI API Key
-                    <input type="password" name="openai_key" value="{{ .OpenAIKey }}" placeholder="sk-...">
-                </label>
-                <label>Anthropic API Key
-                    <input type="password" name="anthropic_key" value="{{ .AnthropicKey }}" placeholder="sk-ant-...">
-                </label>
-                <label>Gemini API Key
-                    <input type="password" name="gemini_key" value="{{ .GeminiKey }}" placeholder="AIzaSy...">
-                </label>
-                <label>Default Vision Model
-                    <select name="default_model">
-                        <option value="gemini" {{ if eq .DefaultModel "gemini" }}selected{{ end }}>Gemini (Best Available)</option>
-                        <option value="openai" {{ if eq .DefaultModel "openai" }}selected{{ end }}>OpenAI (Best Available)</option>
-                        <option value="anthropic" {{ if eq .DefaultModel "anthropic" }}selected{{ end }}>Anthropic (Best Available)</option>
-                    </select>
-                </label>
-                <button type="submit">Save Settings</button>
-            </form>
-        </div>
-
-        {{ if .Result }}
-        <div class="result-container">
-            <div class="result-header">
-                <h2>Generated Blueprint</h2>
-                <div class="actions" style="align-items: center; flex-wrap: wrap;">
-                    {{ if .ImageHash }}
-                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="attachImage" value="1"> Attach original image
-                    </label>
-                    <input type="hidden" id="imageHash" value="{{ .ImageHash }}">
-                    <input type="hidden" id="imageExt" value="{{ .ImageExt }}">
-                    {{ end }}
-                    {{ if .FigmaAssets }}
-                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="downloadAssets" value="1" checked> Download Assets & Design
-                    </label>
-                    <input type="hidden" id="figmaAssets" value="{{ .FigmaAssets }}">
-                    {{ end }}
-                    <label style="font-size: 14px; display: flex; align-items: center; gap: 4px; cursor: pointer;">
-                        <input type="checkbox" id="nukeDir" value="1"> Nuke after implementation
-                    </label>
-                    <button type="button" id="copyBtn" onclick="copyToClipboard()">Copy to Clipboard</button>
-                    <button type="button" id="saveBtn" onclick="saveIntent()">Save to .ai-intent.md</button>
+                    <div id="status-vision" class="status-item {{ if .VisionReady }}ready{{ end }}" title="Vision API Status">
+                        <span class="status-indicator"></span>
+                        <span class="status-text">{{ .ModelDisplayName }}</span>
+                    </div>
                 </div>
             </div>
-            <pre class="result-box">{{ .Result }}</pre>
-        </div>
-        {{ end }}
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <!-- Loader Overlay -->
+            <div class="loader-overlay" id="loader">
+                <div class="spinner"></div>
+                <div class="loader-text">Generating Blueprint...</div>
+            </div>
+
+            <header class="page-header">
+                <h1 id="page-title">Figma Engine</h1>
+                <p id="page-subtitle" class="text-secondary">Extract layout blueprints directly from Figma URLs.</p>
+            </header>
+
+            <div class="content-wrapper">
+                <div class="messages" id="messages-container">
+                    {{ if .Error }}
+                    <div class="msg error">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                        <span>{{ .Error }}</span>
+                    </div>
+                    {{ end }}
+                    
+                    {{ if .SuccessMessage }}
+                    <div class="msg success">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+                        <span>{{ .SuccessMessage }}</span>
+                    </div>
+                    {{ end }}
+                </div>
+
+                <div class="page-container">
+                    <div id="figma" class="page-section active">
+                        <div class="card">
+                            <form id="form-figma" action="/api/figma" method="POST">
+                                <label>Figma Design URL
+                                    <input type="url" name="figma_url" placeholder="https://www.figma.com/file/..." required {{ if not .FigmaKey }}disabled{{ end }}>
+                                    <span class="input-hint">Paste the URL of the specific frame or file.</span>
+                                </label>
+                                <div class="form-actions">
+                                    <button type="submit" {{ if not .FigmaKey }}disabled{{ end }}>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/><path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/><path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/><path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/><path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/></svg>
+                                        Extract & Generate
+                                    </button>
+                                </div>
+                            </form>
+                            {{ if not .FigmaKey }}
+                            <div class="warning-box mt-4">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                Please configure your Figma API Key in Settings to enable this engine.
+                            </div>
+                            {{ end }}
+                        </div>
+                    </div>
+
+                    <div id="image" class="page-section">
+                        <div class="card">
+                            <form id="form-image" action="/api/image" method="POST" enctype="multipart/form-data">
+                                <label class="file-upload-wrapper {{ if not .VisionReady }}disabled{{ end }}">
+                                    <div class="file-upload-content">
+                                        <div class="upload-icon">
+                                            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                                        </div>
+                                        <span class="file-upload-title">Drop your image here</span>
+                                        <span class="file-upload-text">or click to browse from your computer</span>
+                                    </div>
+                                    <input type="file" name="image" accept="image/*" class="hidden-file-input" required {{ if not .VisionReady }}disabled{{ end }}>
+                                </label>
+                                <div class="form-actions">
+                                    <button type="submit" {{ if not .VisionReady }}disabled{{ end }}>
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                        Analyze Image
+                                    </button>
+                                </div>
+                            </form>
+                            {{ if not .VisionReady }}
+                            <div class="warning-box mt-4">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                                Please configure the API Key for {{ .ModelDisplayName }} in Settings.
+                            </div>
+                            {{ end }}
+                        </div>
+                    </div>
+
+                    <div id="settings" class="page-section">
+                        <div class="card settings-card">
+                            <form id="form-settings" action="/api/config" method="POST">
+                                <div class="settings-grid">
+                                    <div class="settings-group">
+                                        <h3>Environment Setup</h3>
+                                        <label>Target Project Directory
+                                            <div class="input-with-button">
+                                                <input type="text" id="targetDirInput" name="target_dir" value="{{ .TargetDir }}" placeholder="/Users/dev/my-project">
+                                                <button type="button" class="btn-icon" onclick="pickDirectory(event)" title="Browse Directory">
+                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                                                </button>
+                                            </div>
+                                            <span class="input-hint">The base directory where intents and assets will be saved.</span>
+                                        </label>
+                                        <label>Figma API Key (PAT)
+                                            <input type="password" name="figma_key" value="{{ .FigmaKey }}" placeholder="figd_...">
+                                        </label>
+                                    </div>
+                                    <div class="settings-group">
+                                        <h3>Vision LLM Keys</h3>
+                                        <label>OpenAI API Key
+                                            <input type="password" name="openai_key" value="{{ .OpenAIKey }}" placeholder="sk-...">
+                                        </label>
+                                        <label>Anthropic API Key
+                                            <input type="password" name="anthropic_key" value="{{ .AnthropicKey }}" placeholder="sk-ant-...">
+                                        </label>
+                                        <label>Gemini API Key
+                                            <input type="password" name="gemini_key" value="{{ .GeminiKey }}" placeholder="AIzaSy...">
+                                        </label>
+                                        <label>Default Vision Model
+                                            <select name="default_model">
+                                                <option value="gemini" {{ if eq .DefaultModel "gemini" }}selected{{ end }}>Gemini (Best Available)</option>
+                                                <option value="openai" {{ if eq .DefaultModel "openai" }}selected{{ end }}>OpenAI (Best Available)</option>
+                                                <option value="anthropic" {{ if eq .DefaultModel "anthropic" }}selected{{ end }}>Anthropic (Best Available)</option>
+                                            </select>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="form-actions border-top">
+                                    <button type="submit">
+                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                        Save Configuration
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Result Container for SPA -->
+                <div id="dynamic-result-container" class="result-container" {{ if .Result }}style="display: block;"{{ end }}>
+                    <div class="result-header">
+                        <h2>Generated Blueprint</h2>
+                        <div class="result-actions" id="result-actions">
+                            <!-- Checkboxes injected by JS -->
+                            {{ if .ImageHash }}
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="attachImage" value="1">
+                                <span class="checkmark"></span>
+                                Attach original image
+                            </label>
+                            <input type="hidden" id="imageHash" value="{{ .ImageHash }}">
+                            <input type="hidden" id="imageExt" value="{{ .ImageExt }}">
+                            {{ end }}
+                            {{ if .FigmaAssets }}
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="downloadAssets" value="1" checked>
+                                <span class="checkmark"></span>
+                                Download Assets & Design
+                            </label>
+                            <input type="hidden" id="figmaAssets" value="{{ .FigmaAssets }}">
+                            {{ end }}
+                            <label class="checkbox-label mr-auto">
+                                <input type="checkbox" id="nukeDir" value="1">
+                                <span class="checkmark"></span>
+                                Nuke after implementation
+                            </label>
+                            
+                            <div class="action-buttons">
+                                <button type="button" class="btn-secondary" id="copyBtn" onclick="copyToClipboard()">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    Copy
+                                </button>
+                                <button type="button" class="btn-primary" id="saveBtn" onclick="saveIntent()">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                                    Save to .ai-intent
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="result-box-container">
+                        <pre class="result-box" id="result-box-content">{{ .Result }}</pre>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 </body>
 </html>

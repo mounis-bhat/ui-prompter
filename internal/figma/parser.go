@@ -163,11 +163,14 @@ func ExtractAssets(node *Node) []AssetInfo {
 	if isAsset {
 		name := node.Name
 		if name == "" {
-			name = node.ID
+			name = "asset"
 		}
 		name = strings.ReplaceAll(name, " ", "_")
 		name = strings.ReplaceAll(name, "/", "_")
 		name = strings.ToLower(name)
+		
+		safeID := strings.ReplaceAll(node.ID, ":", "-")
+		name = fmt.Sprintf("%s_%s", name, safeID)
 
 		assets = append(assets, AssetInfo{
 			ID:     node.ID,
