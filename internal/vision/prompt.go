@@ -26,5 +26,6 @@ Your output MUST be formatted exactly as follows:
 - Respect the project's exact framework and templating language. DO NOT default to React/Tailwind if the project uses something else.
 
 # Semantic Design Blueprint
-[Generate a CLEAN, FRAMEWORK-AGNOSTIC MARKDOWN TREE representing the layout. DO NOT WRITE HTML OR JSX CODE! DO NOT WRITE TAILWIND CLASSES! Write a structural list describing the hierarchy. Use semantic names (e.g., 'User Profile Card'). Include raw structural rules in parentheses (e.g. padding: 16px, flex-direction: row, background: #ffffff, align-items: center). The coding agent will convert these raw rules into the correct framework code later.]
+[Generate a CLEAN, FRAMEWORK-AGNOSTIC MARKDOWN TREE representing the layout. DO NOT WRITE HTML OR JSX CODE! DO NOT WRITE TAILWIND CLASSES! Write a structural list describing the hierarchy. Use semantic names (e.g., 'User Profile Card'). Include raw structural rules in parentheses (e.g. padding: 16px, flex-direction: row, background: #ffffff, align-items: center). The coding agent will convert these raw rules into the correct framework code later.
+CRITICAL OCR INSTRUCTION: You MUST transcribe all text visible in the design EXACTLY as it appears. Perform accurate OCR and embed the exact textual content into the corresponding nodes in the tree. DO NOT use placeholders like "Lorem Ipsum" or "Placeholder Text".]
 `
