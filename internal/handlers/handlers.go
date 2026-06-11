@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/sqweek/dialog"
 
@@ -197,19 +198,15 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Extract Assets regardless of cache
 	assets := figma.ExtractAssets(node)
-	var svgIDs []string
 	var pngIDs []string
 	for _, ast := range assets {
-		if ast.Format == "svg" {
-			svgIDs = append(svgIDs, ast.ID)
-		} else {
+		if ast.Format == "png" || ast.Format == "jpg" || ast.Format == "jpeg" {
 			pngIDs = append(pngIDs, ast.ID)
 		}
 	}
 
 	pngIDs = append(pngIDs, nodeID)
 
-	svgURLs, _ := client.GetImages(fileKey, svgIDs, "svg")
 	pngURLs, _ := client.GetImages(fileKey, pngIDs, "png")
 
 	type DownloadableAsset struct {
@@ -218,17 +215,13 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	var downloadAssets []DownloadableAsset
 	for _, ast := range assets {
-		var u string
-		if ast.Format == "svg" {
-			u = svgURLs[ast.ID]
-		} else {
-			u = pngURLs[ast.ID]
-		}
-		if u != "" {
-			downloadAssets = append(downloadAssets, DownloadableAsset{
-				Name: ast.Name + "." + ast.Format,
-				URL:  u,
-			})
+		if ast.Format == "png" || ast.Format == "jpg" || ast.Format == "jpeg" {
+			if u, ok := pngURLs[ast.ID]; ok && u != "" {
+				downloadAssets = append(downloadAssets, DownloadableAsset{
+					Name: ast.Name + "." + ast.Format,
+					URL:  u,
+				})
+			}
 		}
 	}
 
@@ -508,9 +501,9 @@ func (a *App) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
 		data := a.getHomeData(r)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"SuccessMessage": "Settings saved successfully!",
-			"FigmaReady": data.FigmaKey != "",
-			"VisionReady": data.VisionReady,
+			"SuccessMessage":   "Settings saved successfully!",
+			"FigmaReady":       data.FigmaKey != "",
+			"VisionReady":      data.VisionReady,
 			"ModelDisplayName": data.ModelDisplayName,
 		})
 		return
@@ -572,7 +565,10 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 			assetsDir := filepath.Join(planDirPath, "assets")
 			os.MkdirAll(assetsDir, 0755)
 
-			for _, a := range assets {
+			for i, a := range assets {
+				if i > 0 {
+					time.Sleep(500 * time.Millisecond)
+				}
 				resp, err := http.Get(a.URL)
 				if err == nil {
 					outPath := filepath.Join(assetsDir, a.Name)

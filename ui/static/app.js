@@ -89,14 +89,57 @@ function clearMessages() {
     document.getElementById('messages-container').innerHTML = '';
 }
 
-function toggleLoader(show, text = "Generating Blueprint...") {
-    const loader = document.getElementById('loader');
+const loadingPhrases = [
+    "Reticulating splines...",
+    "Extracting pure design essence...",
+    "Persuading pixels to align...",
+    "Downloading layout blueprints...",
+    "Negotiating with Figma's servers...",
+    "Crunching the vector math...",
+    "Painting with digital colors...",
+    "Constructing DOM tree from scratch...",
+    "Warming up the neural engines...",
+    "Optimizing whitespace logic...",
+    "Distilling UI components...",
+    "Bribing the rate limiters...",
+    "Translating design tokens...",
+    "Brewing digital coffee..."
+];
+
+let loaderInterval;
+
+function toggleLoader(show, forceText = null) {
+    const loader = document.getElementById('global-loader') || document.getElementById('loader');
+    if (!loader) return;
+    
     if (show) {
-        const textEl = loader.querySelector('.loader-text');
-        if (textEl) textEl.innerText = text;
         loader.classList.add('active');
+        const textEl = loader.querySelector('.loader-text');
+        
+        let currentIndex = Math.floor(Math.random() * loadingPhrases.length);
+        if (textEl) {
+            textEl.innerText = forceText || loadingPhrases[currentIndex];
+            textEl.style.viewTransitionName = 'loader-text';
+        }
+        
+        if (!forceText) {
+            loaderInterval = setInterval(() => {
+                currentIndex = (currentIndex + 1) % loadingPhrases.length;
+                if (document.startViewTransition) {
+                    document.startViewTransition(() => {
+                        if (textEl) textEl.innerText = loadingPhrases[currentIndex];
+                    });
+                } else {
+                    if (textEl) textEl.innerText = loadingPhrases[currentIndex];
+                }
+            }, 2500);
+        }
     } else {
         loader.classList.remove('active');
+        if (loaderInterval) {
+            clearInterval(loaderInterval);
+            loaderInterval = null;
+        }
     }
 }
 
@@ -287,17 +330,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Form Interceptors
     const figmaForm = document.getElementById('form-figma');
     if (figmaForm) {
-        figmaForm.addEventListener('submit', (e) => handleFormSubmit(e, 'Extracting Figma Blueprint...'));
+        figmaForm.addEventListener('submit', (e) => handleFormSubmit(e, null));
     }
     
     const imageForm = document.getElementById('form-image');
     if (imageForm) {
-        imageForm.addEventListener('submit', (e) => handleFormSubmit(e, 'Analyzing Image Blueprint...'));
+        imageForm.addEventListener('submit', (e) => handleFormSubmit(e, null));
     }
     
     const settingsForm = document.getElementById('form-settings');
     if (settingsForm) {
-        settingsForm.addEventListener('submit', (e) => handleFormSubmit(e, null)); 
+        settingsForm.addEventListener('submit', (e) => handleFormSubmit(e, "Saving..."));
     }
 
     // File input styling update
@@ -340,6 +383,13 @@ async function saveIntent() {
     const pre = document.querySelector('.result-box');
     if (!pre) return;
     const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    
+    // Check if downloading assets is requested
+    const dlAssets = document.getElementById('downloadAssets');
+    const isDownloading = dlAssets && dlAssets.checked;
+    
+    toggleLoader(true, isDownloading ? null : "Saving...");
     const origHtml = btn.innerHTML;
     
     let content = pre.innerText;

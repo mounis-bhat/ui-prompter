@@ -672,6 +672,25 @@ button.btn-icon:hover {
     font-weight: 500;
     letter-spacing: 0.5px;
     color: var(--text-primary);
+    view-transition-name: loader-text;
+}
+
+::view-transition-old(loader-text) {
+    animation: fadeOutUp 0.3s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+::view-transition-new(loader-text) {
+    animation: fadeInUp 0.3s cubic-bezier(0, 0, 0.2, 1) forwards;
+}
+
+@keyframes fadeOutUp {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-10px); }
+}
+
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes spin {
