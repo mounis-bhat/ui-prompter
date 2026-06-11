@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UI Prompter</title>
+    <style>
+        body { font-family: sans-serif; margin: 2rem; max-width: 800px; }
+        .tabs { display: flex; gap: 1rem; margin-bottom: 1rem; border-bottom: 1px solid #ccc; padding-bottom: 0.5rem; }
+        .tab { cursor: pointer; padding: 0.5rem 1rem; border: 1px solid transparent; border-radius: 4px; }
+        .tab:hover { background: #f0f0f0; }
+        .tab.active { background: #eee; font-weight: bold; border-color: #ccc; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        form { display: flex; flex-direction: column; gap: 1rem; max-width: 400px; }
+        input[type="url"], input[type="file"] { padding: 0.5rem; }
+        button { padding: 0.5rem 1rem; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>UI Prompter</h1>
+    <div class="tabs">
+        <div class="tab active" onclick="showTab(event, 'figma')">Figma URL</div>
+        <div class="tab" onclick="showTab(event, 'image')">Upload Image</div>
+    </div>
+
+    <div id="figma" class="tab-content active">
+        <h2>From Figma URL</h2>
+        <form action="/api/figma" method="POST">
+            <input type="url" name="figma_url" placeholder="https://www.figma.com/file/..." required>
+            <button type="submit">Generate Prompt</button>
+        </form>
+    </div>
+
+    <div id="image" class="tab-content">
+        <h2>From Image Upload</h2>
+        <form action="/api/image" method="POST" enctype="multipart/form-data">
+            <input type="file" name="image" accept="image/*" required>
+            <button type="submit">Generate Prompt</button>
+        </form>
+    </div>
+
+    <script>
+        function showTab(event, tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+            
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+    </script>
+</body>
+</html>
