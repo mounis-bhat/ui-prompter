@@ -66,28 +66,66 @@ function updateDOM(tabId) {
     }
 }
 
-function showMessage(type, text) {
-    const container = document.getElementById('messages-container');
-    container.innerHTML = '';
-    if (!text) return;
+/* ---------------- Toast System ---------------- */
+
+const toastIcons = {
+    success: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`,
+    error: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`,
+    loading: `<span class="toast-spinner"></span>`
+};
+
+function getToastContainer() {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+function spawnToast(type, text, duration) {
+    const container = getToastContainer();
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.innerHTML = `<span class="toast-icon">${toastIcons[type] || ''}</span><span class="toast-text"></span>`;
+    toast.querySelector('.toast-text').textContent = text;
+    container.appendChild(toast);
     
-    const div = document.createElement('div');
-    div.className = `msg ${type}`;
+    // Trigger enter transition on next frame
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => toast.classList.add('visible'));
+    });
     
-    let icon = '';
-    if (type === 'error') {
-        icon = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
-    } else {
-        icon = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>`;
+    if (duration > 0) {
+        setTimeout(() => dismissToast(toast), duration);
     }
     
-    div.innerHTML = `${icon}<span>${text}</span>`;
-    container.appendChild(div);
+    if (type !== 'loading') {
+        toast.addEventListener('click', () => dismissToast(toast));
+    }
+    
+    return toast;
+}
+
+function dismissToast(toast) {
+    if (!toast || toast.dataset.dismissed) return;
+    toast.dataset.dismissed = '1';
+    toast.classList.remove('visible');
+    setTimeout(() => toast.remove(), 350);
+}
+
+function showMessage(type, text) {
+    if (!text) return;
+    spawnToast(type === 'error' ? 'error' : 'success', text, type === 'error' ? 6000 : 4000);
 }
 
 function clearMessages() {
-    document.getElementById('messages-container').innerHTML = '';
+    const container = document.getElementById('messages-container');
+    if (container) container.innerHTML = '';
 }
+
+/* ---------------- Loading Toast ---------------- */
 
 const loadingPhrases = [
     "Reticulating splines...",
@@ -106,40 +144,41 @@ const loadingPhrases = [
     "Brewing digital coffee..."
 ];
 
-let loaderInterval;
+let loaderInterval = null;
+let loadingToast = null;
 
 function toggleLoader(show, forceText = null) {
-    const loader = document.getElementById('global-loader') || document.getElementById('loader');
-    if (!loader) return;
-    
     if (show) {
-        loader.classList.add('active');
-        const textEl = loader.querySelector('.loader-text');
+        if (loadingToast) {
+            if (forceText) {
+                const textEl = loadingToast.querySelector('.toast-text');
+                if (textEl) textEl.textContent = forceText;
+            }
+            return;
+        }
         
         let currentIndex = Math.floor(Math.random() * loadingPhrases.length);
-        if (textEl) {
-            textEl.innerText = forceText || loadingPhrases[currentIndex];
-            textEl.style.viewTransitionName = 'loader-text';
-        }
+        loadingToast = spawnToast('loading', forceText || loadingPhrases[currentIndex], 0);
         
         if (!forceText) {
             loaderInterval = setInterval(() => {
                 currentIndex = (currentIndex + 1) % loadingPhrases.length;
-                if (document.startViewTransition) {
-                    document.startViewTransition(() => {
-                        if (textEl) textEl.innerText = loadingPhrases[currentIndex];
-                    });
-                } else {
-                    if (textEl) textEl.innerText = loadingPhrases[currentIndex];
-                }
+                const textEl = loadingToast && loadingToast.querySelector('.toast-text');
+                if (!textEl) return;
+                textEl.classList.add('fading');
+                setTimeout(() => {
+                    textEl.textContent = loadingPhrases[currentIndex];
+                    textEl.classList.remove('fading');
+                }, 200);
             }, 2500);
         }
     } else {
-        loader.classList.remove('active');
         if (loaderInterval) {
             clearInterval(loaderInterval);
             loaderInterval = null;
         }
+        dismissToast(loadingToast);
+        loadingToast = null;
     }
 }
 
@@ -222,7 +261,7 @@ async function handleFormSubmit(e, loadingText) {
     const form = e.target;
     
     isLoading = true;
-    if (loadingText) toggleLoader(true, loadingText);
+    toggleLoader(true, loadingText);
     const btn = form.querySelector('button[type="submit"]');
     if (btn) btn.disabled = true;
     
@@ -266,7 +305,7 @@ async function handleFormSubmit(e, loadingText) {
         showMessage('error', 'A network error occurred. Please try again.');
     } finally {
         isLoading = false;
-        if (loadingText) toggleLoader(false);
+        toggleLoader(false);
         if (btn) btn.disabled = false;
     }
 }
@@ -281,9 +320,12 @@ function updateSidebarStatus(data) {
         
         // Also update the form button state if needed, though this requires reloading to fully unlock inputs
         const figmaBtn = document.querySelector('#form-figma button[type="submit"]');
-        const figmaInput = document.querySelector('#form-figma input[type="url"]');
         if (figmaBtn) figmaBtn.disabled = !data.FigmaReady;
-        if (figmaInput) figmaInput.disabled = !data.FigmaReady;
+        document.querySelectorAll('#form-figma input[type="url"]').forEach(inp => {
+            inp.disabled = !data.FigmaReady;
+        });
+        const addUrlBtn = document.getElementById('add-figma-url');
+        if (addUrlBtn) addUrlBtn.disabled = !data.FigmaReady;
     }
     
     if (data.VisionReady !== undefined) {
@@ -310,7 +352,57 @@ function updateSidebarStatus(data) {
     }
 }
 
+/* ---------------- Figma URL rows (responsive variants) ---------------- */
+
+const MAX_FIGMA_URLS = 5;
+
+function updateAddUrlButton() {
+    const list = document.getElementById('figma-url-list');
+    const addBtn = document.getElementById('add-figma-url');
+    if (!list || !addBtn) return;
+    const atMax = list.querySelectorAll('.url-row').length >= MAX_FIGMA_URLS;
+    const figmaDisabled = list.querySelector('input[type="url"]')?.disabled;
+    addBtn.disabled = atMax || !!figmaDisabled;
+}
+
+function addFigmaUrlRow() {
+    const list = document.getElementById('figma-url-list');
+    if (!list) return;
+    
+    const rows = list.querySelectorAll('.url-row');
+    if (rows.length >= MAX_FIGMA_URLS) {
+        showMessage('error', `You can add up to ${MAX_FIGMA_URLS} URLs.`);
+        return;
+    }
+    
+    const row = rows[0].cloneNode(true);
+    const input = row.querySelector('input');
+    input.value = '';
+    input.removeAttribute('required'); // only the first URL is mandatory
+    list.appendChild(row);
+    input.focus();
+    updateAddUrlButton();
+}
+
+function initFigmaUrlList() {
+    const list = document.getElementById('figma-url-list');
+    if (!list) return;
+    
+    list.addEventListener('click', (e) => {
+        const btn = e.target.closest('.url-remove');
+        if (!btn) return;
+        const rows = list.querySelectorAll('.url-row');
+        if (rows.length <= 1) return;
+        btn.closest('.url-row').remove();
+        updateAddUrlButton();
+    });
+    
+    updateAddUrlButton();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    initFigmaUrlList();
+
     // Hash Routing
     const handleHash = () => {
         const hash = window.location.hash.substring(1);
@@ -382,6 +474,7 @@ async function copyToClipboard() {
 async function saveIntent() {
     const pre = document.querySelector('.result-box');
     if (!pre) return;
+    if (isLoading) return;
     const btn = document.getElementById('saveBtn');
     btn.disabled = true;
     
@@ -389,6 +482,7 @@ async function saveIntent() {
     const dlAssets = document.getElementById('downloadAssets');
     const isDownloading = dlAssets && dlAssets.checked;
     
+    isLoading = true;
     toggleLoader(true, isDownloading ? null : "Saving...");
     const origHtml = btn.innerHTML;
     
@@ -427,7 +521,7 @@ async function saveIntent() {
     
     if (downloadAssets && downloadAssets.checked && figmaAssets) {
         formData.append('figma_assets', figmaAssets.value);
-        content += "\n\nNote: The extracted assets and design.png are available in the local `" + planDirName + "/assets/` directory. Please move these to the appropriate project directory and use them in the code.";
+        content += "\n\nNote: The extracted image assets are available in the local `" + planDirName + "/assets/` directory. Move ONLY the contents of `" + planDirName + "/assets/` into the appropriate project directory and reference them in the code. The full-design screenshot(s) (design*.png) in `" + planDirName + "/` are strictly a visual reference for you — DO NOT copy or move them into the project, and DO NOT reference them in the code.";
         formData.set('content', content);
     }
 
@@ -443,10 +537,23 @@ async function saveIntent() {
         });
         
         if (res.ok) {
+            let payload = null;
+            try {
+                payload = await res.json();
+            } catch (err) {
+                // Non-JSON response; treat as plain success
+            }
+            
             btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Saved!`;
+            
+            if (payload && payload.Warnings && payload.Warnings.length > 0) {
+                showMessage('error', 'Saved, but with issues: ' + payload.Warnings.join(' | '));
+            } else {
+                showMessage('success', (payload && payload.Message) || 'Saved successfully.');
+            }
         } else {
             const errText = await res.text();
-            alert('Error saving: ' + errText);
+            showMessage('error', 'Error saving: ' + errText);
             btn.innerHTML = `Error`;
         }
         setTimeout(() => {
@@ -454,10 +561,15 @@ async function saveIntent() {
             btn.disabled = false;
         }, 2000);
     } catch (err) {
-        alert('Request failed');
+        showMessage('error', 'Request failed. Please try again.');
         btn.innerHTML = `Error`;
-        btn.disabled = false;
-        setTimeout(() => btn.innerHTML = origHtml, 2000);
+        setTimeout(() => {
+            btn.innerHTML = origHtml;
+            btn.disabled = false;
+        }, 2000);
+    } finally {
+        isLoading = false;
+        toggleLoader(false);
     }
 }
 

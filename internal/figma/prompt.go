@@ -30,3 +30,19 @@ Your output MUST be formatted exactly as follows:
 # Semantic Design Blueprint
 [Rewrite the raw Figma dump into a CLEAN, FRAMEWORK-AGNOSTIC MARKDOWN TREE. DO NOT WRITE HTML OR JSX CODE! DO NOT WRITE TAILWIND CLASSES! Write a structural list describing the hierarchy. Use semantic names (e.g., 'User Profile Card' instead of 'Group 126'). Keep the raw structural layout rules in parentheses (e.g. padding: 16px, gap: 8px, flex-direction: column, background: #000a43, text: "Log In"). The coding agent will convert these raw rules into the correct framework code later.]
 `
+
+// ResponsiveSystemAddendum is appended to SystemPrompt when the user submits
+// multiple Figma frames that represent the same page/component at different
+// breakpoints. It instructs the LLM to merge them into one responsive
+// blueprint instead of producing separate ones.
+const ResponsiveSystemAddendum = `
+
+# Responsive Variants Mode (IMPORTANT)
+The raw dump below contains MULTIPLE variants of the SAME page/component, captured at different breakpoints (e.g. desktop, tablet, mobile). Each variant is delimited by a "===== VARIANT N =====" marker that includes the frame name and width.
+
+Additional rules that OVERRIDE the instructions above where they conflict:
+- Produce ONE single unified blueprint. DO NOT output a separate blueprint per variant.
+- In the Semantic Design Blueprint, describe the shared structure ONCE. For any element whose layout, size, visibility, or ordering differs between variants, annotate the difference inline using the frame widths as breakpoints (e.g. "below 768px: stacks vertically", "mobile only", "desktop: 4 columns, tablet: 2, mobile: 1").
+- Derive the breakpoint values from the variant frame widths provided in the markers.
+- The Objective section MUST state that the component is responsive and list the covered breakpoints.
+- The Execution Sequence MUST instruct the agent to implement the responsive behavior using the project's detected CSS approach (media queries, responsive utility classes, container queries, etc.).`

@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>UI Prompter</title>
-    <link rel="stylesheet" href="/static/style.css?v=3">
-    <script src="/static/app.js?v=4" defer></script>
+    <link rel="stylesheet" href="/static/style.css?v=5">
+    <script src="/static/app.js?v=8" defer></script>
 </head>
 <body>
     <div class="app-layout">
@@ -49,11 +49,6 @@
 
         <!-- Main Content Area -->
         <main class="main-content">
-            <!-- Loader Overlay -->
-            <div id="global-loader" class="loader-overlay">
-            <div class="loader-text">Processing...</div>
-        </div>
-
             <header class="page-header">
                 <h1 id="page-title">Figma Engine</h1>
                 <p id="page-subtitle" class="text-secondary">Extract layout blueprints directly from Figma URLs.</p>
@@ -80,10 +75,22 @@
                     <div id="figma" class="page-section active">
                         <div class="card">
                             <form id="form-figma" action="/api/figma" method="POST">
-                                <label>Figma Design URL
-                                    <input type="url" name="figma_url" placeholder="https://www.figma.com/file/..." required {{ if not .FigmaKey }}disabled{{ end }}>
-                                    <span class="input-hint">Paste the URL of the specific frame or file.</span>
-                                </label>
+                                <div class="field">
+                                    <span class="field-label">Figma Design URLs</span>
+                                    <div id="figma-url-list">
+                                        <div class="url-row">
+                                            <input type="url" name="figma_url" placeholder="https://www.figma.com/design/..." required {{ if not .FigmaKey }}disabled{{ end }}>
+                                            <button type="button" class="btn-icon url-remove" title="Remove this URL" aria-label="Remove this URL">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn-ghost" id="add-figma-url" onclick="addFigmaUrlRow()" {{ if not .FigmaKey }}disabled{{ end }}>
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                        Add breakpoint variant
+                                    </button>
+                                    <span class="input-hint">Paste the URL of a specific frame. For responsive designs, add one URL per breakpoint (desktop, tablet, mobile) and they will be merged into a single responsive blueprint. Max 5.</span>
+                                </div>
                                 <div class="form-actions">
                                     <button type="submit" {{ if not .FigmaKey }}disabled{{ end }}>
                                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5A3.5 3.5 0 0 1 8.5 2H12v7H8.5A3.5 3.5 0 0 1 5 5.5z"/><path d="M12 2h3.5a3.5 3.5 0 1 1 0 7H12V2z"/><path d="M12 12.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 1 1-7 0z"/><path d="M5 19.5A3.5 3.5 0 0 1 8.5 16H12v3.5a3.5 3.5 0 1 1-7 0z"/><path d="M5 12.5A3.5 3.5 0 0 1 8.5 9H12v7H8.5A3.5 3.5 0 0 1 5 12.5z"/></svg>
@@ -227,5 +234,8 @@
             </div>
         </main>
     </div>
+
+    <!-- Toast notifications -->
+    <div id="toast-container" aria-live="polite"></div>
 </body>
 </html>

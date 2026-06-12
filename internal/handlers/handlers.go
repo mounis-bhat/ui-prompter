@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	gocontext "context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -11,7 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
 	"github.com/sqweek/dialog"
 
@@ -46,6 +47,33 @@ func (a *App) RegisterRoutes(mux *http.ServeMux) {
 	// Serve static files
 	mux.Handle("GET /static/", http.FileServer(http.FS(ui.Files)))
 }
+
+// figmaAssetMeta identifies a downloadable raster asset by its Figma node
+// ID. Fresh render URLs are fetched at save time because Figma's S3 URLs
+// expire and must not be cached.
+type figmaAssetMeta struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// figmaFileAssets groups asset and design-screenshot nodes per Figma file,
+// since responsive variants may live in different files.
+type figmaFileAssets struct {
+	FileKey string           `json:"fileKey"`
+	Assets  []figmaAssetMeta `json:"assets,omitempty"`
+	Designs []figmaAssetMeta `json:"designs,omitempty"`
+}
+
+type figmaAssetsPayload struct {
+	Files []figmaFileAssets `json:"files,omitempty"`
+
+	// Legacy single-file fields, kept so older cached payloads still work.
+	FileKey      string           `json:"fileKey,omitempty"`
+	DesignNodeID string           `json:"designNodeId,omitempty"`
+	Assets       []figmaAssetMeta `json:"assets,omitempty"`
+}
+
+const maxFigmaURLs = 5
 
 type HomeData struct {
 	FigmaKey         string
@@ -115,29 +143,67 @@ func (a *App) homeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// renderData writes HomeData either as JSON (for fetch requests) or as the
+// rendered home template (no-JS fallback).
+func (a *App) renderData(w http.ResponseWriter, r *http.Request, data HomeData) {
+	if r.Header.Get("Accept") == "application/json" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(data)
+		return
+	}
+	a.homeTmpl.Execute(w, data)
+}
+
+// sanitizeFileName converts an arbitrary Figma node name into a safe,
+// filesystem-friendly slug.
+func sanitizeFileName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		case r == ' ' || r == '.':
+			b.WriteRune('_')
+		}
+	}
+	s := strings.Trim(b.String(), "_")
+	if s == "" {
+		s = "variant"
+	}
+	if len(s) > 40 {
+		s = s[:40]
+	}
+	return s
+}
+
 func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	data := a.getHomeData(r)
 
 	if err := r.ParseForm(); err != nil {
 		data.Error = "Unable to parse form"
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
-	figmaURL := r.FormValue("figma_url")
-	if figmaURL == "" {
-		data.Error = "Figma URL is required"
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
+	// Collect submitted URLs. Multiple URLs are treated as responsive
+	// variants of the same page/component.
+	var figmaURLs []string
+	for _, u := range r.Form["figma_url"] {
+		u = strings.TrimSpace(u)
+		if u != "" {
+			figmaURLs = append(figmaURLs, u)
 		}
-		a.homeTmpl.Execute(w, data)
+	}
+
+	if len(figmaURLs) == 0 {
+		data.Error = "At least one Figma URL is required"
+		a.renderData(w, r, data)
+		return
+	}
+	if len(figmaURLs) > maxFigmaURLs {
+		data.Error = fmt.Sprintf("A maximum of %d Figma URLs is supported per blueprint.", maxFigmaURLs)
+		a.renderData(w, r, data)
 		return
 	}
 
@@ -145,28 +211,38 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 	figmaKey := data.FigmaKey
 	if figmaKey == "" {
 		data.Error = "Figma API Key (PAT) is missing. Please configure it in Settings."
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
-	fileKey, nodeID, err := figma.ExtractFileKeyAndNodeID(figmaURL)
-	if err != nil {
-		data.Error = err.Error()
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
+	type nodeRef struct {
+		fileKey string
+		nodeID  string
+	}
+	var refs []nodeRef
+	seenRef := make(map[string]bool)
+	for i, u := range figmaURLs {
+		fileKey, nodeID, err := figma.ExtractFileKeyAndNodeID(u)
+		if err != nil {
+			data.Error = fmt.Sprintf("URL %d: %s", i+1, err.Error())
+			a.renderData(w, r, data)
 			return
 		}
-		a.homeTmpl.Execute(w, data)
-		return
+		key := fileKey + ":" + nodeID
+		if seenRef[key] {
+			continue // ignore duplicate links
+		}
+		seenRef[key] = true
+		refs = append(refs, nodeRef{fileKey: fileKey, nodeID: nodeID})
 	}
 
-	hashBytes := sha256.Sum256([]byte("figma:" + figmaURL))
+	// Key the cache on the stable file key + node ID pairs so volatile
+	// query params (e.g. the "t" token) don't cause cache misses.
+	var keyParts []string
+	for _, ref := range refs {
+		keyParts = append(keyParts, ref.fileKey+":"+ref.nodeID)
+	}
+	hashBytes := sha256.Sum256([]byte("figma:" + strings.Join(keyParts, "|")))
 	hashStr := hex.EncodeToString(hashBytes[:])
 
 	if cachedResp, err := a.db.Queries.GetCache(ctx, hashStr); err == nil && cachedResp != "" {
@@ -174,114 +250,120 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 		if cachedAssets, err := a.db.Queries.GetCache(ctx, hashStr+"_assets"); err == nil && cachedAssets != "" {
 			data.FigmaAssets = cachedAssets
 		}
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
 	client := figma.NewClient(figmaKey)
-	node, err := client.GetNode(fileKey, nodeID)
-	if err != nil {
-		data.Error = err.Error()
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
+	nodes := make([]*figma.Node, 0, len(refs))
+	for i, ref := range refs {
+		node, err := client.GetNode(ref.fileKey, ref.nodeID)
+		if err != nil {
+			data.Error = fmt.Sprintf("Failed to fetch Figma node for URL %d: %s", i+1, err.Error())
+			a.renderData(w, r, data)
 			return
 		}
-		a.homeTmpl.Execute(w, data)
-		return
+		nodes = append(nodes, node)
 	}
 
-	// Extract Assets regardless of cache
-	assets := figma.ExtractAssets(node)
-	var pngIDs []string
-	for _, ast := range assets {
-		if ast.Format == "png" || ast.Format == "jpg" || ast.Format == "jpeg" {
-			pngIDs = append(pngIDs, ast.ID)
+	// Collect downloadable asset metadata (node IDs only, never URLs).
+	// Figma render URLs expire quickly, so fresh URLs are fetched at save
+	// time instead. Only raster images (png/jpg) are included; SVGs and
+	// vectors are intentionally excluded to avoid hammering the Figma API.
+	payload := figmaAssetsPayload{}
+	fileIdx := make(map[string]int)
+	fileGroup := func(fileKey string) *figmaFileAssets {
+		if idx, ok := fileIdx[fileKey]; ok {
+			return &payload.Files[idx]
 		}
+		payload.Files = append(payload.Files, figmaFileAssets{FileKey: fileKey})
+		fileIdx[fileKey] = len(payload.Files) - 1
+		return &payload.Files[len(payload.Files)-1]
 	}
 
-	pngIDs = append(pngIDs, nodeID)
+	seenAsset := make(map[string]bool)
+	for i, ref := range refs {
+		group := fileGroup(ref.fileKey)
 
-	pngURLs, _ := client.GetImages(fileKey, pngIDs, "png")
-
-	type DownloadableAsset struct {
-		Name string `json:"name"`
-		URL  string `json:"url"`
-	}
-	var downloadAssets []DownloadableAsset
-	for _, ast := range assets {
-		if ast.Format == "png" || ast.Format == "jpg" || ast.Format == "jpeg" {
-			if u, ok := pngURLs[ast.ID]; ok && u != "" {
-				downloadAssets = append(downloadAssets, DownloadableAsset{
-					Name: ast.Name + "." + ast.Format,
-					URL:  u,
-				})
+		for _, ast := range figma.ExtractAssets(nodes[i]) {
+			if ast.Format != "png" && ast.Format != "jpg" && ast.Format != "jpeg" {
+				continue
 			}
+			key := ref.fileKey + ":" + ast.ID
+			if seenAsset[key] {
+				continue
+			}
+			seenAsset[key] = true
+			group.Assets = append(group.Assets, figmaAssetMeta{
+				ID:   ast.ID,
+				Name: ast.Name + "." + ast.Format,
+			})
 		}
-	}
 
-	if designURL, ok := pngURLs[nodeID]; ok && designURL != "" {
-		downloadAssets = append(downloadAssets, DownloadableAsset{
-			Name: "design.png",
-			URL:  designURL,
+		designName := "design.png"
+		if len(refs) > 1 {
+			designName = fmt.Sprintf("design_%d_%s.png", i+1, sanitizeFileName(nodes[i].Name))
+		}
+		group.Designs = append(group.Designs, figmaAssetMeta{
+			ID:   ref.nodeID,
+			Name: designName,
 		})
 	}
 
-	if len(downloadAssets) > 0 {
-		b, _ := json.Marshal(downloadAssets)
+	if b, err := json.Marshal(payload); err == nil {
 		data.FigmaAssets = string(b)
 	}
 
-	markdown := figma.ParseNodeToMarkdown(node, 0)
+	// Build the markdown dump. Multiple frames are labeled as variants of
+	// the same page so the LLM merges them into one responsive blueprint.
+	var markdown string
+	systemPrompt := figma.SystemPrompt
+	if len(refs) == 1 {
+		markdown = figma.ParseNodeToMarkdown(nodes[0], 0)
+	} else {
+		systemPrompt += figma.ResponsiveSystemAddendum
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("The following %d frames are responsive variants of the SAME page/component at different breakpoints.\n\n", len(refs)))
+		for i, node := range nodes {
+			width := ""
+			if node.BoundingBox != nil && node.BoundingBox.Width > 0 {
+				width = fmt.Sprintf(", width: %.0fpx", node.BoundingBox.Width)
+			}
+			sb.WriteString(fmt.Sprintf("===== VARIANT %d: %q%s =====\n\n", i+1, node.Name, width))
+			sb.WriteString(figma.ParseNodeToMarkdown(node, 0))
+			sb.WriteString("\n")
+		}
+		markdown = sb.String()
+	}
 
-	defaultModel := a.getHomeData(r).DefaultModel
+	defaultModel := data.DefaultModel
 	apiKey := ""
 	switch defaultModel {
 	case "openai":
-		apiKey = a.getHomeData(r).OpenAIKey
+		apiKey = data.OpenAIKey
 	case "anthropic":
-		apiKey = a.getHomeData(r).AnthropicKey
+		apiKey = data.AnthropicKey
 	case "gemini":
-		apiKey = a.getHomeData(r).GeminiKey
+		apiKey = data.GeminiKey
 	}
 
 	if apiKey == "" {
 		data.Error = fmt.Sprintf("API Key for %s is missing. Please configure it in Settings to polish the Figma output.", defaultModel)
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
 	provider, err := vision.NewProvider(defaultModel, apiKey)
 	if err != nil {
 		data.Error = "Error initializing LLM provider: " + err.Error()
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
-	finalPrompt, err := provider.GenerateText(ctx, figma.SystemPrompt, markdown)
+	finalPrompt, err := provider.GenerateText(ctx, systemPrompt, markdown)
 	if err != nil {
 		data.Error = "Error generating prompt via LLM: " + err.Error()
-		if r.Header.Get("Accept") == "application/json" {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(data)
-			return
-		}
-		a.homeTmpl.Execute(w, data)
+		a.renderData(w, r, data)
 		return
 	}
 
@@ -299,17 +381,12 @@ func (a *App) figmaHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, _ = a.db.Queries.AddHistory(ctx, queries.AddHistoryParams{
 		SourceType: "figma",
-		SourceUri:  figmaURL,
+		SourceUri:  strings.Join(figmaURLs, " | "),
 		Prompt:     finalPrompt,
 	})
 
 	data.Result = finalPrompt
-	if r.Header.Get("Accept") == "application/json" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(data)
-		return
-	}
-	a.homeTmpl.Execute(w, data)
+	a.renderData(w, r, data)
 }
 
 func (a *App) imageHandler(w http.ResponseWriter, r *http.Request) {
@@ -530,12 +607,15 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	planDirName := r.FormValue("plan_dir")
-	if planDirName == "" {
+	planDirName := filepath.Base(r.FormValue("plan_dir"))
+	if planDirName == "" || planDirName == "." || planDirName == ".." || planDirName == string(filepath.Separator) {
 		planDirName = "ui-prompter-plan"
 	}
 	planDirPath := filepath.Join(targetDir, planDirName)
-	os.MkdirAll(planDirPath, 0755)
+	if err := os.MkdirAll(planDirPath, 0755); err != nil {
+		http.Error(w, "Failed to create plan directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	err := os.WriteFile(filepath.Join(planDirPath, "intent.md"), []byte(content), 0644)
 	if err != nil {
@@ -555,39 +635,142 @@ func (a *App) saveIntentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var warnings []string
+
 	figmaAssetsStr := r.FormValue("figma_assets")
 	if figmaAssetsStr != "" {
-		var assets []struct {
-			Name string `json:"name"`
-			URL  string `json:"url"`
-		}
-		if err := json.Unmarshal([]byte(figmaAssetsStr), &assets); err == nil {
-			assetsDir := filepath.Join(planDirPath, "assets")
-			os.MkdirAll(assetsDir, 0755)
+		warnings = append(warnings, a.downloadFigmaAssets(ctx, figmaAssetsStr, planDirPath)...)
+	}
 
-			for i, a := range assets {
-				if i > 0 {
-					time.Sleep(500 * time.Millisecond)
-				}
-				resp, err := http.Get(a.URL)
-				if err == nil {
-					outPath := filepath.Join(assetsDir, a.Name)
-					if a.Name == "design.png" {
-						outPath = filepath.Join(planDirPath, a.Name)
-					}
-					outFile, err := os.Create(outPath)
-					if err == nil {
-						io.Copy(outFile, resp.Body)
-						outFile.Close()
-					}
-					resp.Body.Close()
-				}
-			}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"Message":  "Saved successfully",
+		"Warnings": warnings,
+	})
+}
+
+// downloadFigmaAssets fetches fresh render URLs for the requested asset node
+// IDs and downloads them into the plan directory. It returns a list of
+// human-readable warnings for anything that failed; an empty list means full
+// success.
+func (a *App) downloadFigmaAssets(ctx gocontext.Context, figmaAssetsStr, planDirPath string) []string {
+	var warnings []string
+
+	var payload figmaAssetsPayload
+	if err := json.Unmarshal([]byte(figmaAssetsStr), &payload); err != nil {
+		return []string{"Asset data was invalid or outdated; assets were not downloaded. Re-generate the blueprint and try again."}
+	}
+
+	// Normalize legacy single-file payloads into the Files list.
+	if len(payload.Files) == 0 && payload.FileKey != "" {
+		legacy := figmaFileAssets{
+			FileKey: payload.FileKey,
+			Assets:  payload.Assets,
+		}
+		if payload.DesignNodeID != "" {
+			legacy.Designs = []figmaAssetMeta{{ID: payload.DesignNodeID, Name: "design.png"}}
+		}
+		payload.Files = []figmaFileAssets{legacy}
+	}
+
+	if len(payload.Files) == 0 {
+		return []string{"Asset data was invalid or outdated; assets were not downloaded. Re-generate the blueprint and try again."}
+	}
+
+	figmaKey, _ := a.db.Queries.GetConfig(ctx, "figma_key")
+	if figmaKey == "" {
+		return []string{"Figma API key is missing; assets were not downloaded."}
+	}
+
+	client := figma.NewClient(figmaKey)
+
+	download := func(name, url, outPath string) {
+		resp, err := http.Get(url)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to download %s: %v", name, err))
+			return
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			warnings = append(warnings, fmt.Sprintf("Failed to download %s: HTTP %d", name, resp.StatusCode))
+			return
+		}
+
+		outFile, err := os.Create(outPath)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to save %s: %v", name, err))
+			return
+		}
+		defer outFile.Close()
+
+		if _, err := io.Copy(outFile, resp.Body); err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to write %s: %v", name, err))
 		}
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Saved successfully"))
+	assetsDir := filepath.Join(planDirPath, "assets")
+	assetsDirReady := false
+	safeName := func(name, fallback string) string {
+		name = filepath.Base(name)
+		if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+			return fallback
+		}
+		return name
+	}
+
+	// One GetImages call per Figma file (variants usually share one file).
+	for _, group := range payload.Files {
+		var ids []string
+		for _, ast := range group.Assets {
+			ids = append(ids, ast.ID)
+		}
+		for _, d := range group.Designs {
+			ids = append(ids, d.ID)
+		}
+		if len(ids) == 0 {
+			continue
+		}
+
+		urls, err := client.GetImages(group.FileKey, ids, "png")
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("Failed to fetch asset URLs from Figma (file %s): %v", group.FileKey, err))
+			continue
+		}
+
+		if len(group.Assets) > 0 && !assetsDirReady {
+			if err := os.MkdirAll(assetsDir, 0755); err != nil {
+				warnings = append(warnings, "Failed to create assets directory: "+err.Error())
+			} else {
+				assetsDirReady = true
+			}
+		}
+
+		if assetsDirReady {
+			for _, ast := range group.Assets {
+				name := safeName(ast.Name, "asset.png")
+				u, ok := urls[ast.ID]
+				if !ok || u == "" {
+					warnings = append(warnings, fmt.Sprintf("Figma did not return a render URL for %s; skipped.", name))
+					continue
+				}
+				download(name, u, filepath.Join(assetsDir, name))
+			}
+		}
+
+		for _, d := range group.Designs {
+			name := safeName(d.Name, "design.png")
+			u, ok := urls[d.ID]
+			if !ok || u == "" {
+				warnings = append(warnings, fmt.Sprintf("Figma did not return a render URL for %s; skipped.", name))
+				continue
+			}
+			download(name, u, filepath.Join(planDirPath, name))
+		}
+	}
+
+	return warnings
 }
 
 func (a *App) pickDirHandler(w http.ResponseWriter, r *http.Request) {
